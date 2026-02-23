@@ -246,11 +246,11 @@ class HynousTelegramBot:
             if text.startswith("/chat "):
                 prompt = text[6:].strip()
             elif text.startswith("/"):
-                self._send(chat_id, "Unknown command. Use /help")
+                # Ignore unknown commands: only respond to valid commands.
                 return
             else:
                 if getattr(self.config.telegram, "commands_only", True):
-                    self._send(chat_id, "Commands only. Use /help")
+                    # Commands-only mode: ignore free text.
                     return
                 prompt = text
 
