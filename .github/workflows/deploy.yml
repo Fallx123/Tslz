@@ -1,0 +1,48 @@
+name: Deploy to Hetzner
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.HETZNER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Sync files to server
+        run: |
+          rsync -az \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            --exclude='.git' \
+            --exclude='.venv' \
+            --exclude='node_modules' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='dashboard/.web' \
+            --exclude='storage/' \
+            ./ root@${{ secrets.HETZNER_HOST }}:/opt/hynous/
+
+      - name: Restart dashboard
+        run: |
+          ssh -i ~/.ssh/deploy_key root@${{ secrets.HETZNER_HOST }} \
+            "systemctl restart hynous-dashboard"
+
+      - name: Health check
+        run: |
+          sleep 15
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://${{ secrets.HETZNER_HOST }})
+          if [ "$STATUS" = "200" ]; then
+            echo "✅ Deploy successful — http://${{ secrets.HETZNER_HOST }}"
+          else
+            echo "❌ Health check failed (HTTP $STATUS)"
+            exit 1
+          fi
