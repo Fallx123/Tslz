@@ -55,6 +55,7 @@ discord:
   enabled: true                                # Master switch
   channel_id: 1469952346028245097              # Discord channel ID for notifications + chat
   stats_channel_id: 1469946713471975476        # Separate channel for stats panel
+  commands_only: true                          # Ignore plain text; require !chat <message> or !stats
   allowed_user_ids:                            # Only respond to these users
     - 1415781451474927657                      # David
     - 614868895643205639                       # Kevin

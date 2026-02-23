@@ -95,9 +95,25 @@ class HynousDiscordBot(discord.Client):
                 await message.channel.send(f"Stats error: {e}")
             return
 
+        # Commands:
+        #   !stats         -> stats panel
+        #   !chat <prompt> -> relay to agent
+        if user_text.lower().startswith("!chat "):
+            prompt = user_text[6:].strip()
+            if not prompt:
+                return
+        elif user_text.startswith("!"):
+            # Unknown command: ignore silently.
+            return
+        else:
+            if getattr(self.config.discord, "commands_only", True):
+                # Commands-only mode: ignore plain text.
+                return
+            prompt = user_text
+
         # Prefix with sender name so the agent knows who's talking
         sender = message.author.display_name
-        prefixed = f"[{sender} via Discord] {user_text}"
+        prefixed = f"[{sender} via Discord] {prompt}"
 
         # Show typing indicator while agent thinks + uses tools
         try:

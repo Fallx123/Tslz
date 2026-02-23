@@ -110,6 +110,7 @@ class DiscordConfig:
     token: str = ""              # from DISCORD_BOT_TOKEN env var
     channel_id: int = 0          # channel for notifications + chat
     stats_channel_id: int = 0    # separate channel for stats panel (0 = use channel_id)
+    commands_only: bool = True   # ignore plain text unless it's a command
     allowed_user_ids: list[int] = field(default_factory=list)  # only respond to these Discord users (empty = any)
 
 
@@ -264,6 +265,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
             token=os.environ.get("DISCORD_BOT_TOKEN", ""),
             channel_id=discord_raw.get("channel_id", 0),
             stats_channel_id=discord_raw.get("stats_channel_id", 0),
+            commands_only=discord_raw.get("commands_only", True),
             allowed_user_ids=discord_raw.get("allowed_user_ids", []),
         ),
         telegram=TelegramConfig(
