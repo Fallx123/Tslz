@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trading Chart</title>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    background: #0c0f1e;
+    color: #fafafa;
+    font-family: 'Inter', system-ui, sans-serif;
+    height: 100%;
+    overflow: hidden;
+  }
+  #chart { width: 100%; height: 100vh; }
+
+  #overlay {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: #0c0f1e;
+    color: #2a3050;
+    font-size: 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.05em;
+    pointer-events: none;
+    transition: opacity 0.3s;
+  }
+  #overlay.hidden { opacity: 0; }
+</style>
+</head>
+<body>
+<div id="chart"></div>
+<div id="overlay">Loading…</div>
+
+<script>
+// ── URL params ───────────────────────────────────────────────────────────────
+const qp    = new URLSearchParams(window.location.search);
+const SYMBOL = (qp.get('symbol') || 'BTC').toUpperCase();
+const TF     = qp.get('tf') || '15m';
+const ENTRY  = parseFloat(qp.get('entry') || '0');
+const SL     = parseFloat(qp.get('sl')    || '0');
+const TP     = parseFloat(qp.get('tp')    || '0');
+const SIDE   = (qp.get('side') || '').toLowerCase();
+const TF_LIMITS = {
+  '1m': 600,
+  '5m': 600,
+  '15m': 500,
+  '1h': 400,
+  '4h': 400,
+  '1d': 365,
+};
+const LIMIT = TF_LIMITS[TF] || 300;
+
+// ── Format helpers ───────────────────────────────────────────────────────────
+function fmtP(p) {
+  if (!p) return '—';
+  if (p >= 10000) return p.toLocaleString('en-US', {maximumFractionDigits: 0});
+  if (p >= 100)   return p.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  if (p >= 1)     return p.toFixed(4);
+  return p.toFixed(6);
+}
+function fmtLabel(p) {
+  if (p >= 1000)  return '$' + p.toLocaleString('en-US', {maximumFractionDigits: 0});
+  if (p >= 1)     return '$' + p.toFixed(2);
+  return '$' + p.toFixed(6);
+}
+
+// ── Fetch via backend ────────────────────────────────────────────────────────
+// Assets are served on port 3000; the Reflex API is on port 8000.
+const API_BASE = window.location.hostname === 'localhost'
+  ? 'http://localhost:8000'
+  : window.location.origin;
+
+async function fetchCandles() {
+  const resp = await fetch(`${API_BASE}/api/trading-candles/${SYMBOL}?tf=${TF}&limit=${LIMIT}`);
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${resp.status}`);
+  }
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
+// ── Render ───────────────────────────────────────────────────────────────────
+async function fetchAndRender() {
+  const overlay = document.getElementById('overlay');
+  overlay.textContent = 'Loading…';
+  overlay.classList.remove('hidden');
+
+  let payload;
+  try {
+    payload = await fetchCandles();
+  } catch (e) {
+    overlay.textContent = '⚠ ' + e.message;
+    return;
+  }
+
+  const candles = payload && payload.candles ? payload.candles : [];
+  const indicators = payload && payload.indicators ? payload.indicators : {};
+  const source = payload && payload.source ? payload.source : '';
+
+  if (!candles.length) {
+    overlay.textContent = 'No data for ' + SYMBOL;
+    return;
+  }
+
+  renderChart(candles, indicators, source);
+  overlay.classList.add('hidden');
+}
+
+function renderChart(candles, indicators, source) {
+  // Ensure chronological order (some providers return newest-first)
+  const sorted = [...candles].sort((a, b) => (a.t || 0) - (b.t || 0));
+  const times  = sorted.map(c => new Date(c.t));
+  const opens  = sorted.map(c => c.o);
+  const highs  = sorted.map(c => c.h);
+  const lows   = sorted.map(c => c.l);
+  const closes = sorted.map(c => c.c);
+  const vols   = sorted.map(c => c.v);
+
+  const lastClose  = closes[closes.length - 1] || 0;
+  const firstClose = closes[0] || lastClose;
+  const changePct  = firstClose ? ((lastClose - firstClose) / firstClose * 100) : 0;
+
+  // Volume colors — indigo tinted
+  const volColors = sorted.map(c =>
+    c.c >= c.o ? 'rgba(99,130,238,0.55)' : 'rgba(120,100,200,0.45)'
+  );
+
+  const traces = [];
+  const sma50  = indicators.sma50 || [];
+  const ema12  = indicators.ema12 || [];
+  const ema26  = indicators.ema26 || [];
+  const bbU    = indicators.bb_upper || [];
+  const bbM    = indicators.bb_mid || [];
+  const bbL    = indicators.bb_lower || [];
+  const rsi14  = indicators.rsi || [];
+  const macd   = indicators.macd || [];
+  const macdS  = indicators.macd_signal || [];
+  const macdH  = indicators.macd_hist || [];
+  const volSma = indicators.vol_sma || [];
+
+  // ── Candlestick ──────────────────────────────────────────────────────────
+  traces.push({
+    type: 'candlestick',
+    x: times,
+    open: opens, high: highs, low: lows, close: closes,
+    increasing: { line: { color: '#4361ee', width: 1.5 }, fillcolor: '#4361ee' },
+    decreasing: { line: { color: '#7c6fcd', width: 1.5 }, fillcolor: '#7c6fcd' },
+    xaxis: 'x', yaxis: 'y',
+    name: SYMBOL,
+    whiskerwidth: 0.6,
+    hovertemplate:
+      'O %{open:.4f}  H %{high:.4f}  L %{low:.4f}  C %{close:.4f}<extra></extra>',
+  });
+
+  // ── Overlays (SMA/EMA/BB) ────────────────────────────────────────────────
+  if (bbL.length && bbU.length) {
+    traces.push({
+      type: 'scatter', mode: 'lines',
+      x: times, y: bbL,
+      line: { color: 'rgba(67,97,238,0.15)', width: 1 },
+      xaxis: 'x', yaxis: 'y', name: 'BB Lower',
+      hoverinfo: 'skip',
+      showlegend: false,
+    });
+    traces.push({
+      type: 'scatter', mode: 'lines',
+      x: times, y: bbU,
+      line: { color: 'rgba(67,97,238,0.15)', width: 1 },
+      fill: 'tonexty',
+      xaxis: 'x', yaxis: 'y', name: 'BB Upper',
+      hoverinfo: 'skip',
+      showlegend: false,
+    });
+  }
+  if (bbM.length) {
+    traces.push({
+      type: 'scatter', mode: 'lines',
+      x: times, y: bbM,
+      line: { color: 'rgba(125,211,252,0.5)', width: 1 },
+      xaxis: 'x', yaxis: 'y', name: 'BB Mid',
+      hoverinfo: 'skip',
+      showlegend: false,
+    });
+  }
+  if (sma50.length) {
+    traces.push({
+      type: 'scatter', mode: 'lines',
+      x: times, y: sma50,
+      line: { color: '#22d3ee', width: 1 },
+      xaxis: 'x', yaxis: 'y', name: 'SMA 50',
+      hovertemplate: 'SMA50: %{y:.4f}<extra></extra>',
+      showlegend: false,
+    });
+  }
+  if (ema12.length) {
+    traces.push({
+      type: 'scatter', mode: 'lines',
+      x: times, y: ema12,
+      line: { color: '#f59e0b', width: 1 },
+      xaxis: 'x', yaxis: 'y', name: 'EMA 12',
+      hovertemplate: 'EMA12: %{y:.4f}<extra></extra>',
+      showlegend: false,
+    });
+  }
+  if (ema26.length) {
+    traces.push({
+      type: 'scatter', mode: 'lines',
+      x: times, y: ema26,
+      line: { color: '#a855f7', width: 1 },
+      xaxis: 'x', yaxis: 'y', name: 'EMA 26',
+      hovertemplate: 'EMA26: %{y:.4f}<extra></extra>',
+      showlegend: false,
+    });
+  }
+
+  // ── Volume bars ──────────────────────────────────────────────────────────
+  traces.push({
+    type: 'bar',
+    x: times, y: vols,
+    marker: { color: volColors },
+    xaxis: 'x', yaxis: 'y2',
+    showlegend: false,
+    name: 'Volume',
+    hovertemplate: 'Vol: %{y:.0f}<extra></extra>',
+  });
+  if (volSma.length) {
+    traces.push({
+      type: 'scatter', mode: 'lines',
+      x: times, y: volSma,
+      line: { color: 'rgba(148,163,184,0.6)', width: 1 },
+      xaxis: 'x', yaxis: 'y2', name: 'Vol SMA',
+      hoverinfo: 'skip',
+      showlegend: false,
+    });
+  }
+
+  // ── RSI panel ────────────────────────────────────────────────────────────
+  if (rsi14.length) {
+    traces.push({
+      type: 'scatter', mode: 'lines',
+      x: times, y: rsi14,
+      line: { color: '#38bdf8', width: 1 },
+      xaxis: 'x', yaxis: 'y3', name: 'RSI',
+      hovertemplate: 'RSI: %{y:.2f}<extra></extra>',
+      showlegend: false,
+    });
+  }
+
+  // ── MACD panel ───────────────────────────────────────────────────────────
+  if (macdH.length) {
+    traces.push({
+      type: 'bar',
+      x: times, y: macdH,
+      marker: { color: macdH.map(v => v >= 0 ? 'rgba(74,222,128,0.5)' : 'rgba(248,113,113,0.5)') },
+      xaxis: 'x', yaxis: 'y4', name: 'MACD Hist',
+      hovertemplate: 'MACD Hist: %{y:.4f}<extra></extra>',
+      showlegend: false,
+    });
+  }
+  if (macd.length) {
+    traces.push({
+      type: 'scatter', mode: 'lines',
+      x: times, y: macd,
+      line: { color: '#eab308', width: 1 },
+      xaxis: 'x', yaxis: 'y4', name: 'MACD',
+      hovertemplate: 'MACD: %{y:.4f}<extra></extra>',
+      showlegend: false,
+    });
+  }
+  if (macdS.length) {
+    traces.push({
+      type: 'scatter', mode: 'lines',
+      x: times, y: macdS,
+      line: { color: '#f472b6', width: 1 },
+      xaxis: 'x', yaxis: 'y4', name: 'Signal',
+      hovertemplate: 'Signal: %{y:.4f}<extra></extra>',
+      showlegend: false,
+    });
+  }
+
+  // ── Shapes / Annotations ─────────────────────────────────────────────────
+  const shapes      = [];
+  const annotations = [];
+  const sideColor   = SIDE === 'short' ? '#f87171' : '#4361ee';
+
+  if (ENTRY > 0) {
+    shapes.push({ type:'line', xref:'paper', yref:'y', x0:0,x1:1,
+      y0:ENTRY, y1:ENTRY, line:{color:sideColor,width:1.5,dash:'dash'} });
+    annotations.push({ xref:'paper', yref:'y', x:0.01, y:ENTRY,
+      text:'▶ ENTRY ' + fmtLabel(ENTRY), showarrow:false,
+      xanchor:'left', yanchor:'bottom',
+      font:{color:sideColor,size:10,family:'JetBrains Mono'},
+      bgcolor:'rgba(12,15,30,0.8)', borderpad:2 });
+  }
+  if (SL > 0) {
+    shapes.push({ type:'line', xref:'paper', yref:'y', x0:0,x1:1,
+      y0:SL, y1:SL, line:{color:'#f87171',width:1.5} });
+    annotations.push({ xref:'paper', yref:'y', x:0.01, y:SL,
+      text:'⤵ STOP ' + fmtLabel(SL), showarrow:false,
+      xanchor:'left', yanchor:'top',
+      font:{color:'#f87171',size:10,family:'JetBrains Mono'},
+      bgcolor:'rgba(12,15,30,0.8)', borderpad:2 });
+  }
+  if (TP > 0) {
+    shapes.push({ type:'line', xref:'paper', yref:'y', x0:0,x1:1,
+      y0:TP, y1:TP, line:{color:'#4ade80',width:1.5} });
+    annotations.push({ xref:'paper', yref:'y', x:0.01, y:TP,
+      text:'⤴ TARGET ' + fmtLabel(TP), showarrow:false,
+      xanchor:'left', yanchor:'bottom',
+      font:{color:'#4ade80',size:10,family:'JetBrains Mono'},
+      bgcolor:'rgba(12,15,30,0.8)', borderpad:2 });
+  }
+
+  // Current price pill on right axis
+  if (lastClose > 0) {
+    shapes.push({ type:'line', xref:'paper', yref:'y', x0:0,x1:1,
+      y0:lastClose, y1:lastClose,
+      line:{color:'rgba(99,130,238,0.2)',width:1,dash:'dot'} });
+    annotations.push({
+      xref:'paper', yref:'y', x:1.01, y:lastClose,
+      text:' ' + fmtP(lastClose) + ' ',
+      showarrow:false, xanchor:'left', yanchor:'middle',
+      bgcolor:'#4361ee', bordercolor:'#4361ee', borderpad:4, borderwidth:0,
+      font:{color:'#fff',size:10,family:'JetBrains Mono'},
+    });
+  }
+
+  const tickFmt = lastClose >= 10000 ? ',.0f'
+                : lastClose >= 100   ? '.2f'
+                : lastClose >= 1     ? '.4f'
+                : '.6f';
+  const dateTickFmt = TF === '1d' ? '%b %d' : TF === '4h' ? '%b %d' : '%b %d %H:%M';
+
+  // Rangebreaks:
+  // - For equities (yfinance), hide weekends only to avoid timezone gaps.
+  const rangebreaks = source === 'yf' ? [{ bounds: ['sat', 'mon'] }] : [];
+
+  // RSI guide lines
+  if (rsi14.length) {
+    shapes.push(
+      { type:'line', xref:'paper', yref:'y3', x0:0,x1:1, y0:70, y1:70,
+        line:{color:'rgba(248,113,113,0.35)',width:1,dash:'dot'} },
+      { type:'line', xref:'paper', yref:'y3', x0:0,x1:1, y0:30, y1:30,
+        line:{color:'rgba(74,222,128,0.35)',width:1,dash:'dot'} }
+    );
+  }
+
+  const layout = {
+    paper_bgcolor: '#0c0f1e',
+    plot_bgcolor:  '#0c0f1e',
+    font: { color: '#3d4f72', family: 'Inter, system-ui', size: 10 },
+    margin: { t: 12, b: 24, l: 8, r: 72 },
+
+    xaxis: {
+      type: 'date',
+      showgrid: true, gridcolor: '#111630', gridwidth: 1,
+      tickformat: dateTickFmt,
+      tickcolor: '#1a2040', linecolor: '#12172e',
+      rangeslider: { visible: false },
+      domain: [0, 1],
+      tickfont: { color: '#3d4f72', size: 9 },
+      rangebreaks,
+    },
+
+    // Main price — 60% height
+    yaxis: {
+      domain: [0.40, 1.0],
+      showgrid: true, gridcolor: '#111630',
+      tickcolor: '#1a2040', linecolor: '#12172e',
+      tickformat: tickFmt,
+      side: 'right', automargin: false,
+      tickfont: { color: '#3d4f72', size: 9 },
+    },
+
+    // Volume — 10% height
+    yaxis2: {
+      domain: [0.30, 0.40],
+      showgrid: false, showticklabels: false,
+      tickcolor: '#1a2040', linecolor: '#12172e',
+      side: 'right',
+    },
+
+    // RSI — 15% height
+    yaxis3: {
+      domain: [0.15, 0.30],
+      showgrid: true, gridcolor: '#111630',
+      tickcolor: '#1a2040', linecolor: '#12172e',
+      range: [0, 100],
+      side: 'right',
+      tickfont: { color: '#3d4f72', size: 8 },
+    },
+
+    // MACD — 15% height
+    yaxis4: {
+      domain: [0.0, 0.15],
+      showgrid: true, gridcolor: '#111630',
+      tickcolor: '#1a2040', linecolor: '#12172e',
+      side: 'right',
+      tickfont: { color: '#3d4f72', size: 8 },
+    },
+
+    shapes, annotations,
+    hovermode: 'x unified',
+    hoverdistance: 20,
+    hoverlabel: {
+      bgcolor: '#131829', bordercolor: '#1e2a50',
+      font: { color: '#c8d3f5', size: 11, family: 'JetBrains Mono' },
+    },
+    legend: { visible: false },
+    dragmode: 'pan',
+  };
+
+  Plotly.react('chart', traces, layout, {
+    responsive: true,
+    displayModeBar: false,
+    scrollZoom: true,
+  });
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+fetchAndRender();
+setInterval(fetchAndRender, 3000); // refresh every 3s for lively updates
+</script>
+</body>
+</html>

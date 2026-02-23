@@ -1,0 +1,107 @@
+# Hynous Configuration
+# Edit this file to change behavior. Restart app after changes.
+
+# Application metadata
+app:
+  name: "Tslz"
+  version: "0.1.0"
+
+# Execution settings
+execution:
+  mode: "paper"
+  market: "equities"
+  paper_balance: 10000       # Starting balance for paper trading (USD)
+  symbols:                   # Symbols to track
+    - "AAPL"
+    - "MSFT"
+    - "SPY"
+
+# Alpaca settings (stocks)
+alpaca:
+  paper: true
+  data_feed: "iex"    # iex (free), sip (paid)
+
+# Options trading
+options:
+  enabled: true
+  provider: "alpaca"
+
+# Agent settings
+agent:
+  model: "openrouter/x-ai/grok-4.1-fast"  # OpenRouter
+  max_tokens: 560            # Max response tokens (user chat default)
+  temperature: 0.7           # Creativity (0-1)
+
+# Daemon settings (background autonomous agent)
+daemon:
+  enabled: false                   # Master switch — enable autonomous mode
+  price_poll_interval: 60          # Price polling interval (seconds)
+  deriv_poll_interval: 300         # Derivatives/sentiment polling (seconds)
+  periodic_interval: 3600          # Periodic market review wake (seconds, 60 min)
+  curiosity_threshold: 1           # Pending curiosity items before learning session
+  curiosity_check_interval: 900    # Curiosity queue check interval (seconds, 15 min)
+  decay_interval: 21600              # FSRS batch decay cycle interval (seconds, 6 hours)
+  conflict_check_interval: 1800      # Contradiction queue polling interval (seconds, 30 min)
+  health_check_interval: 3600        # Nous health check interval (seconds, 1 hour)
+  embedding_backfill_interval: 43200 # Embedding backfill interval (seconds, 12 hours)
+  max_daily_loss_usd: 100            # Circuit breaker: pause trading after this daily loss
+  max_open_positions: 3              # Max simultaneous open positions
+  max_wakes_per_hour: 6              # Rate limit on agent wakes per hour
+  wake_cooldown_seconds: 120         # Min seconds between non-priority wakes
+  support_resistance_interval: 21600 # S/R recompute interval (seconds, 6 hours)
+
+# Discord bot (chat relay + daemon notifications)
+discord:
+  enabled: true                                # Master switch
+  channel_id: 1469952346028245097              # Discord channel ID for notifications + chat
+  stats_channel_id: 1469946713471975476        # Separate channel for stats panel
+  allowed_user_ids:                            # Only respond to these users
+    - 1415781451474927657                      # David
+    - 614868895643205639                       # Kevin
+
+# TradingView webhook
+webhook:
+  enabled: false
+  token: ""          # Shared secret for webhook auth
+  host: "0.0.0.0"
+  port: 9010
+
+# Memory (Nous) settings
+nous:
+  url: "http://localhost:3100"        # Nous server URL
+  server_dir: "nous-server/server"  # Path to Nous server (relative to project root)
+  db_path: "storage/nous.db"          # Server-side DB path
+  auto_retrieve_limit: 3              # Recent memories to auto-load (was 5)
+
+# Intelligent Retrieval Orchestrator (multi-pass memory search)
+orchestrator:
+  enabled: true                    # Master switch
+  quality_threshold: 0.20          # Min top-result SSA score to accept without retry
+  relevance_ratio: 0.4             # Dynamic cutoff: keep results scoring >= top * ratio
+  max_results: 8                   # Hard cap on merged results
+  max_sub_queries: 4               # Max decomposition parts for compound queries
+  max_retries: 1                   # Reformulation attempts per sub-query
+  timeout_seconds: 3.0             # Total orchestration timeout
+  search_limit_per_query: 10       # Results to fetch per sub-query (overfetch for quality gate)
+
+# Tiered memory settings (working window + Nous-backed compression)
+memory:
+  window_size: 4                 # Complete exchanges to keep in working window
+  max_context_tokens: 1200       # Token budget for recalled context injected per call (was 4000)
+  retrieve_limit: 3              # Max memories to retrieve per query (was 5)
+  compression_model: "claude-haiku-4-5-20251001"  # Anthropic direct
+  compress_enabled: true         # Enable/disable automatic compression
+
+# Event detection thresholds
+events:
+  funding:
+    extreme_positive: 0.001  # 0.10%
+    extreme_negative: -0.0005  # -0.05%
+  price:
+    spike_percent: 0.05      # 5% move triggers event
+  cooldown_minutes: 30       # Min time between same event type
+
+# Logging
+logging:
+  level: "INFO"              # DEBUG | INFO | WARNING | ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

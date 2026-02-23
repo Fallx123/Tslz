@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Chart</title>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    background: #0a0a0a;
+    color: #fafafa;
+    font-family: 'Inter', system-ui, sans-serif;
+    height: 100%;
+    overflow: hidden;
+  }
+  #app { display: flex; height: 100vh; }
+  #chart-wrap { flex: 1; min-width: 0; position: relative; }
+  #chart { width: 100%; height: 100%; }
+  body.no-panel .analysis-panel { display: none; }
+  body.no-panel #chart-wrap { flex: 1 1 auto; }
+
+  /* ── Analysis Panel ── */
+  .analysis-panel {
+    width: 252px;
+    min-width: 252px;
+    background: #0d0d0d;
+    border-left: 1px solid #1a1a1a;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .panel-header {
+    padding: 12px 14px;
+    border-bottom: 1px solid #1a1a1a;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #6366f1;
+    box-shadow: 0 0 8px rgba(99,102,241,0.6);
+    animation: pulse 2s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.55; transform: scale(0.82); }
+  }
+  .panel-title {
+    font-size: 0.66rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #6366f1;
+  }
+  .update-time {
+    margin-left: auto;
+    font-size: 0.58rem;
+    color: #404040;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* ── Position Row ── */
+  .pos-section {
+    padding: 10px 14px;
+    border-bottom: 1px solid #1a1a1a;
+    flex-shrink: 0;
+  }
+  .pos-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 5px;
+  }
+  .pos-label {
+    font-size: 0.62rem;
+    color: #525252;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+  }
+  .pos-value {
+    font-size: 0.78rem;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    color: #e2e8f0;
+  }
+
+  /* ── Indicator Grid ── */
+  .indicator-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: #1a1a1a;
+    border-bottom: 1px solid #1a1a1a;
+    flex-shrink: 0;
+  }
+  .ind-card {
+    background: #0d0d0d;
+    padding: 9px 12px;
+  }
+  .ind-label {
+    font-size: 0.57rem;
+    color: #404040;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+    margin-bottom: 3px;
+  }
+  .ind-value {
+    font-size: 0.88rem;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    color: #a3a3a3;
+  }
+  .ind-signal {
+    font-size: 0.6rem;
+    margin-top: 2px;
+    color: #525252;
+  }
+
+  /* ── Analysis Body ── */
+  .analysis-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 12px;
+    scrollbar-width: none;
+  }
+  .analysis-body::-webkit-scrollbar { display: none; }
+  .section-label {
+    font-size: 0.58rem;
+    color: #404040;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 700;
+    margin-bottom: 7px;
+    margin-top: 12px;
+  }
+  .section-label:first-child { margin-top: 0; }
+  .signal-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    margin-bottom: 8px;
+    opacity: 0;
+    transform: translateY(3px);
+    animation: fadeIn 0.35s ease forwards;
+  }
+  @keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
+  .signal-icon {
+    font-size: 0.72rem;
+    margin-top: 1px;
+    flex-shrink: 0;
+    width: 14px;
+    text-align: center;
+  }
+  .signal-text {
+    font-size: 0.73rem;
+    color: #a3a3a3;
+    line-height: 1.45;
+  }
+  .signal-text strong { color: #e5e5e5; }
+
+  /* ── Timeframe tabs (top of chart) ── */
+  .tf-bar {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 4px;
+    z-index: 10;
+  }
+  .tf-btn {
+    padding: 3px 9px;
+    background: #111;
+    border: 1px solid #222;
+    border-radius: 4px;
+    color: #525252;
+    font-size: 0.68rem;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    transition: all 0.1s;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .tf-btn:hover { border-color: #404040; color: #a3a3a3; }
+  .tf-btn.active { border-color: #6366f1; color: #a5b4fc; background: #13131f; }
+
+  .loader {
+    display: flex; align-items: center; justify-content: center;
+    height: 100%; color: #404040; font-size: 0.85rem;
+  }
+  .error-msg { color: #f87171; padding: 20px; font-size: 0.8rem; }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Chart -->
+  <div id="chart-wrap">
+    <div id="chart"></div>
+    <div class="tf-bar" id="tf-bar"></div>
+  </div>
+
+  <!-- Analysis Panel -->
+  <div class="analysis-panel">
+    <div class="panel-header">
+      <div class="dot"></div>
+      <span class="panel-title">Hynous Analysis</span>
+      <span class="update-time" id="update-time">—</span>
+    </div>
+
+    <!-- Position info (shown only when entry is set) -->
+    <div class="pos-section" id="pos-section" style="display:none">
+      <div class="pos-row">
+        <span class="pos-label">Symbol</span>
+        <span class="pos-value" id="pos-symbol">—</span>
+      </div>
+      <div class="pos-row">
+        <span class="pos-label">Side</span>
+        <span class="pos-value" id="pos-side">—</span>
+      </div>
+      <div class="pos-row">
+        <span class="pos-label">Entry</span>
+        <span class="pos-value" id="pos-entry">—</span>
+      </div>
+      <div class="pos-row">
+        <span class="pos-label">Stop Loss</span>
+        <span class="pos-value" style="color:#f87171" id="pos-sl">—</span>
+      </div>
+      <div class="pos-row" style="margin-bottom:0">
+        <span class="pos-label">Take Profit</span>
+        <span class="pos-value" style="color:#4ade80" id="pos-tp">—</span>
+      </div>
+    </div>
+
+    <!-- Indicator cards 2x2 grid -->
+    <div class="indicator-grid">
+      <div class="ind-card">
+        <div class="ind-label">RSI 14</div>
+        <div class="ind-value" id="ind-rsi">—</div>
+        <div class="ind-signal" id="ind-rsi-sig">—</div>
+      </div>
+      <div class="ind-card">
+        <div class="ind-label">MACD</div>
+        <div class="ind-value" id="ind-macd">—</div>
+        <div class="ind-signal" id="ind-macd-sig">—</div>
+      </div>
+      <div class="ind-card">
+        <div class="ind-label">BB Width</div>
+        <div class="ind-value" id="ind-bb">—</div>
+        <div class="ind-signal" id="ind-bb-sig">—</div>
+      </div>
+      <div class="ind-card">
+        <div class="ind-label">Volume</div>
+        <div class="ind-value" id="ind-vol">—</div>
+        <div class="ind-signal" id="ind-vol-sig">—</div>
+      </div>
+    </div>
+
+    <!-- Analysis feed -->
+    <div class="analysis-body">
+      <div class="section-label">Signal Analysis</div>
+      <div id="signals-container"></div>
+      <div class="section-label">Trend Context</div>
+      <div id="trend-container"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── URL params ──────────────────────────────────────────────────────────────
+const qp = new URLSearchParams(window.location.search);
+let SYMBOL = (qp.get('symbol') || 'BTC').toUpperCase();
+let DISPLAY_SYMBOL = SYMBOL;
+let TF     = qp.get('tf') || '15m';
+const ENTRY = parseFloat(qp.get('entry') || '0');
+const SL    = parseFloat(qp.get('sl')    || '0');
+const TP    = parseFloat(qp.get('tp')    || '0');
+const SIDE  = (qp.get('side') || '').toLowerCase();
+const SHOW_PANEL = (qp.get('panel') || '1') !== '0';
+if (!SHOW_PANEL) document.body.classList.add('no-panel');
+
+const TF_OPTIONS = ['5m','15m','1h','4h','1d'];
+const TF_MS = { '1m':60000,'3m':180000,'5m':300000,'15m':900000,'30m':1800000,'1h':3600000,'4h':14400000,'1d':86400000 };
+
+// ── Timeframe bar ───────────────────────────────────────────────────────────
+(function buildTfBar() {
+  const bar = document.getElementById('tf-bar');
+  TF_OPTIONS.forEach(tf => {
+    const btn = document.createElement('button');
+    btn.className = 'tf-btn' + (tf === TF ? ' active' : '');
+    btn.textContent = tf.toUpperCase();
+    btn.onclick = () => {
+      TF = tf;
+      document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      fetchAndRender();
+    };
+    bar.appendChild(btn);
+  });
+})();
+
+// ── Position section ────────────────────────────────────────────────────────
+if (ENTRY > 0) {
+  document.getElementById('pos-section').style.display = 'block';
+  document.getElementById('pos-symbol').textContent = DISPLAY_SYMBOL;
+  const sideEl = document.getElementById('pos-side');
+  sideEl.textContent = SIDE ? SIDE.toUpperCase() : '—';
+  sideEl.style.color  = SIDE === 'long' ? '#4ade80' : SIDE === 'short' ? '#f87171' : '#e2e8f0';
+  document.getElementById('pos-entry').textContent = ENTRY > 0 ? '$' + fmtP(ENTRY) : '—';
+  document.getElementById('pos-sl').textContent    = SL   > 0 ? '$' + fmtP(SL)    : '—';
+  document.getElementById('pos-tp').textContent    = TP   > 0 ? '$' + fmtP(TP)    : '—';
+}
+
+// ── Formatting helpers ──────────────────────────────────────────────────────
+function fmtP(p) {
+  if (p >= 10000) return p.toLocaleString('en-US', {maximumFractionDigits: 0});
+  if (p >= 100)   return p.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  if (p >= 1)     return p.toFixed(4);
+  return p.toFixed(6);
+}
+function fmtLabel(p) {
+  if (p >= 1000)  return '$' + p.toLocaleString('en-US', {maximumFractionDigits: 0});
+  if (p >= 1)     return '$' + p.toFixed(3);
+  return '$' + p.toFixed(6);
+}
+
+// ── Last non-null ───────────────────────────────────────────────────────────
+function last(arr) {
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (arr[i] !== null && arr[i] !== undefined) return arr[i];
+  }
+  return null;
+}
+function prevOf(arr, offset = 1) {
+  let count = 0;
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (arr[i] !== null && arr[i] !== undefined) {
+      if (count === offset) return arr[i];
+      count++;
+    }
+  }
+  return null;
+}
+
+// ── Filter nulls ────────────────────────────────────────────────────────────
+function validPairs(times, values) {
+  const t = [], v = [];
+  for (let i = 0; i < values.length; i++) {
+    if (values[i] !== null && values[i] !== undefined) {
+      t.push(times[i]); v.push(values[i]);
+    }
+  }
+  return { t, v };
+}
+
+// ── Fetch & render ──────────────────────────────────────────────────────────
+async function fetchAndRender() {
+  try {
+    const resp = await fetch(`/api/live-ohlcv/${SYMBOL}?tf=${TF}`);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    if (data.fetch_symbol && data.display_symbol) {
+      DISPLAY_SYMBOL = data.fetch_symbol === data.display_symbol ? data.display_symbol : `${data.fetch_symbol} (${data.display_symbol})`;
+      const posSym = document.getElementById('pos-symbol');
+      if (posSym) posSym.textContent = DISPLAY_SYMBOL;
+    }
+    renderChart(data);
+    renderAnalysis(data);
+    const now = new Date();
+    document.getElementById('update-time').textContent =
+      now.getHours().toString().padStart(2,'0') + ':' +
+      now.getMinutes().toString().padStart(2,'0') + ':' +
+      now.getSeconds().toString().padStart(2,'0');
+  } catch(e) {
+    document.getElementById('chart').innerHTML =
+      '<div class="error-msg">⚠ ' + e.message + '</div>';
+  }
+}
+
+// ── Chart rendering ─────────────────────────────────────────────────────────
+function renderChart(data) {
+  const candles = data.candles;
+  const ind     = data.indicators;
+
+  const times  = candles.map(c => new Date(c.t));
+  const opens  = candles.map(c => c.o);
+  const highs  = candles.map(c => c.h);
+  const lows   = candles.map(c => c.l);
+  const closes = candles.map(c => c.c);
+  const vols   = candles.map(c => c.v);
+  const volColors = candles.map(c => c.c >= c.o
+    ? 'rgba(74,222,128,0.4)' : 'rgba(248,113,113,0.4)');
+
+  const sideColor = SIDE === 'long' ? '#4ade80' : SIDE === 'short' ? '#f87171' : '#a5b4fc';
+  const traces = [];
+
+  // BB fill
+  const bbU = validPairs(times, ind.bb_upper);
+  const bbL = validPairs(times, ind.bb_lower);
+  if (bbU.t.length) {
+    traces.push({
+      x: [...bbU.t, ...bbU.t.slice().reverse()],
+      y: [...bbU.v, ...bbL.v.slice().reverse()],
+      fill: 'toself', fillcolor: 'rgba(99,102,241,0.04)',
+      line: {color:'transparent'}, showlegend:false,
+      hoverinfo:'skip', xaxis:'x', yaxis:'y', type:'scatter', name:'BB Band',
+    });
+  }
+  // BB Upper
+  if (bbU.t.length) traces.push({ x:bbU.t, y:bbU.v, mode:'lines',
+    line:{color:'rgba(99,102,241,0.35)',width:1,dash:'dot'},
+    showlegend:false, hovertemplate:'BB Upper: %{y:.2f}<extra></extra>',
+    xaxis:'x', yaxis:'y', name:'BB Upper'});
+  // BB Lower
+  if (bbL.t.length) traces.push({ x:bbL.t, y:bbL.v, mode:'lines',
+    line:{color:'rgba(99,102,241,0.35)',width:1,dash:'dot'},
+    showlegend:false, hovertemplate:'BB Lower: %{y:.2f}<extra></extra>',
+    xaxis:'x', yaxis:'y', name:'BB Lower'});
+  // BB Mid / SMA20
+  const bbM = validPairs(times, ind.bb_mid);
+  if (bbM.t.length) traces.push({ x:bbM.t, y:bbM.v, mode:'lines',
+    line:{color:'rgba(165,180,252,0.45)',width:1},
+    showlegend:false, hovertemplate:'SMA20: %{y:.2f}<extra></extra>',
+    xaxis:'x', yaxis:'y', name:'SMA20'});
+  // SMA50
+  const s50 = validPairs(times, ind.sma50);
+  if (s50.t.length) traces.push({ x:s50.t, y:s50.v, mode:'lines',
+    line:{color:'rgba(251,191,36,0.45)',width:1},
+    showlegend:false, hovertemplate:'SMA50: %{y:.2f}<extra></extra>',
+    xaxis:'x', yaxis:'y', name:'SMA50'});
+  // EMA12
+  const e12 = validPairs(times, ind.ema12);
+  if (e12.t.length) traces.push({ x:e12.t, y:e12.v, mode:'lines',
+    line:{color:'rgba(52,211,153,0.38)',width:1,dash:'dash'},
+    showlegend:false, hovertemplate:'EMA12: %{y:.2f}<extra></extra>',
+    xaxis:'x', yaxis:'y', name:'EMA12'});
+  // EMA26
+  const e26 = validPairs(times, ind.ema26);
+  if (e26.t.length) traces.push({ x:e26.t, y:e26.v, mode:'lines',
+    line:{color:'rgba(251,146,60,0.38)',width:1,dash:'dash'},
+    showlegend:false, hovertemplate:'EMA26: %{y:.2f}<extra></extra>',
+    xaxis:'x', yaxis:'y', name:'EMA26'});
+
+  // Candlestick
+  traces.push({
+    type:'candlestick', x:times,
+    open:opens, high:highs, low:lows, close:closes,
+    increasing:{line:{color:'#4ade80',width:1}, fillcolor:'#4ade80'},
+    decreasing:{line:{color:'#f87171',width:1}, fillcolor:'#f87171'},
+    xaxis:'x', yaxis:'y', name:SYMBOL, whiskerwidth:0.2,
+    hovertemplate:'O: %{open:.4f}<br>H: %{high:.4f}<br>L: %{low:.4f}<br>C: %{close:.4f}<extra>'+SYMBOL+'</extra>',
+  });
+
+  // Volume bars
+  traces.push({type:'bar', x:times, y:vols,
+    marker:{color:volColors},
+    xaxis:'x', yaxis:'y2', showlegend:false, name:'Volume',
+    hovertemplate:'Vol: %{y:.0f}<extra></extra>'});
+  // Vol SMA
+  const vs = validPairs(times, ind.vol_sma);
+  if (vs.t.length) traces.push({x:vs.t, y:vs.v, mode:'lines',
+    line:{color:'rgba(165,180,252,0.45)',width:1},
+    xaxis:'x', yaxis:'y2', showlegend:false, name:'Vol SMA',
+    hovertemplate:'Vol SMA: %{y:.0f}<extra></extra>'});
+
+  // RSI
+  const rsiP = validPairs(times, ind.rsi);
+  if (rsiP.t.length) traces.push({x:rsiP.t, y:rsiP.v, mode:'lines',
+    line:{color:'#c084fc',width:1.5},
+    xaxis:'x', yaxis:'y3', showlegend:false, name:'RSI',
+    hovertemplate:'RSI: %{y:.1f}<extra></extra>'});
+
+  // MACD line
+  const macdP = validPairs(times, ind.macd);
+  if (macdP.t.length) traces.push({x:macdP.t, y:macdP.v, mode:'lines',
+    line:{color:'#60a5fa',width:1.5},
+    xaxis:'x', yaxis:'y4', showlegend:false, name:'MACD',
+    hovertemplate:'MACD: %{y:.5f}<extra></extra>'});
+  // Signal
+  const sigP = validPairs(times, ind.macd_signal);
+  if (sigP.t.length) traces.push({x:sigP.t, y:sigP.v, mode:'lines',
+    line:{color:'#f59e0b',width:1.5},
+    xaxis:'x', yaxis:'y4', showlegend:false, name:'Signal',
+    hovertemplate:'Signal: %{y:.5f}<extra></extra>'});
+  // Histogram
+  const histP = validPairs(times, ind.macd_hist);
+  if (histP.t.length) {
+    const hColors = histP.v.map(v => v >= 0 ? 'rgba(74,222,128,0.5)' : 'rgba(248,113,113,0.5)');
+    traces.push({type:'bar', x:histP.t, y:histP.v,
+      marker:{color:hColors},
+      xaxis:'x', yaxis:'y4', showlegend:false, name:'Hist',
+      hovertemplate:'Hist: %{y:.5f}<extra></extra>'});
+  }
+
+  // Determine tick format
+  const lastClose = closes[closes.length - 1] || 0;
+  const tickFmt = lastClose >= 100 ? ',.0f' : (lastClose >= 1 ? '.3f' : '.6f');
+  const dateTickFmt = TF === '1d' ? '%b %d' : (TF === '4h' ? '%b %d %H:%M' : '%b %d %H:%M');
+
+  // Shapes
+  const shapes = [
+    // RSI zones
+    {type:'rect', xref:'paper', yref:'y3', x0:0,x1:1, y0:70,y1:100, fillcolor:'rgba(248,113,113,0.05)', line:{width:0}},
+    {type:'rect', xref:'paper', yref:'y3', x0:0,x1:1, y0:0, y1:30,  fillcolor:'rgba(74,222,128,0.05)',  line:{width:0}},
+    {type:'line', xref:'paper', yref:'y3', x0:0,x1:1, y0:70,y1:70, line:{color:'rgba(248,113,113,0.25)',width:1,dash:'dot'}},
+    {type:'line', xref:'paper', yref:'y3', x0:0,x1:1, y0:30,y1:30, line:{color:'rgba(74,222,128,0.25)', width:1,dash:'dot'}},
+    {type:'line', xref:'paper', yref:'y3', x0:0,x1:1, y0:50,y1:50, line:{color:'rgba(255,255,255,0.06)',width:1}},
+    // MACD zero
+    {type:'line', xref:'paper', yref:'y4', x0:0,x1:1, y0:0,y1:0, line:{color:'rgba(255,255,255,0.08)',width:1}},
+  ];
+
+  const annotations = [
+    {xref:'paper', yref:'paper', x:0.003, y:0.405, text:'<b style="font-size:8px;color:#404040">VOL</b>',  showarrow:false, xanchor:'left'},
+    {xref:'paper', yref:'paper', x:0.003, y:0.275, text:'<b style="font-size:8px;color:#404040">RSI</b>',  showarrow:false, xanchor:'left'},
+    {xref:'paper', yref:'paper', x:0.003, y:0.135, text:'<b style="font-size:8px;color:#404040">MACD</b>', showarrow:false, xanchor:'left'},
+  ];
+
+  if (ENTRY > 0) {
+    shapes.push({type:'line', xref:'paper', yref:'y', x0:0,x1:1, y0:ENTRY,y1:ENTRY,
+      line:{color:sideColor, width:1.5, dash:'dash'}});
+    annotations.push({xref:'paper', yref:'y', x:0.01, y:ENTRY,
+      text:'▶ ENTRY ' + fmtLabel(ENTRY), showarrow:false,
+      xanchor:'left', yanchor:'bottom',
+      font:{color:sideColor, size:10, family:'JetBrains Mono'},
+      bgcolor:'rgba(10,10,10,0.75)', borderpad:2});
+  }
+  if (SL > 0) {
+    shapes.push({type:'line', xref:'paper', yref:'y', x0:0,x1:1, y0:SL,y1:SL,
+      line:{color:'#ef4444', width:1.5}});
+    annotations.push({xref:'paper', yref:'y', x:0.01, y:SL,
+      text:'⤵ STOP ' + fmtLabel(SL), showarrow:false,
+      xanchor:'left', yanchor:'top',
+      font:{color:'#ef4444', size:10, family:'JetBrains Mono'},
+      bgcolor:'rgba(10,10,10,0.75)', borderpad:2});
+  }
+  if (TP > 0) {
+    shapes.push({type:'line', xref:'paper', yref:'y', x0:0,x1:1, y0:TP,y1:TP,
+      line:{color:'#22c55e', width:1.5}});
+    annotations.push({xref:'paper', yref:'y', x:0.01, y:TP,
+      text:'⤴ TARGET ' + fmtLabel(TP), showarrow:false,
+      xanchor:'left', yanchor:'bottom',
+      font:{color:'#22c55e', size:10, family:'JetBrains Mono'},
+      bgcolor:'rgba(10,10,10,0.75)', borderpad:2});
+  }
+
+  const layout = {
+    paper_bgcolor: '#0a0a0a',
+    plot_bgcolor:  '#0a0a0a',
+    font: {color:'#5a5a5a', family:'Inter, system-ui, sans-serif', size:10},
+    margin: {t:32, b:20, l:10, r:64},
+
+    // Main price chart — 56% height
+    xaxis: {
+      type:'date', showgrid:true, gridcolor:'#131313', gridwidth:1,
+      tickformat:dateTickFmt, tickcolor:'#222', linecolor:'#1a1a1a',
+      rangeslider:{visible:false}, domain:[0,1],
+      showticklabels:true,
+    },
+    yaxis: {
+      domain:[0.42,1.0], showgrid:true, gridcolor:'#131313',
+      tickcolor:'#222', linecolor:'#1a1a1a', tickformat:tickFmt,
+      side:'right', automargin:true,
+    },
+
+    // Volume — 12%
+    yaxis2: {
+      domain:[0.29,0.40], showgrid:false,
+      tickcolor:'#222', linecolor:'#1a1a1a',
+      showticklabels:false, side:'right',
+    },
+
+    // RSI — 13%
+    yaxis3: {
+      domain:[0.15,0.27], range:[0,100],
+      showgrid:true, gridcolor:'#131313',
+      tickvals:[30,50,70], ticktext:['30','50','70'],
+      tickcolor:'#222', linecolor:'#1a1a1a', side:'right',
+    },
+
+    // MACD — 14%
+    yaxis4: {
+      domain:[0.00,0.13],
+      showgrid:true, gridcolor:'#131313',
+      tickcolor:'#222', linecolor:'#1a1a1a',
+      side:'right', tickformat:'.4f',
+    },
+
+    shapes, annotations,
+
+    title: {
+      text: SYMBOL + ' · ' + TF.toUpperCase(),
+      font:{color:'#525252', size:12, family:'JetBrains Mono'},
+      x:0.01, pad:{t:6},
+    },
+
+    hovermode:'x unified',
+    hoverdistance:20,
+    hoverlabel:{bgcolor:'#111', bordercolor:'#2a2a2a',
+      font:{color:'#e5e5e5', size:11, family:'JetBrains Mono'}},
+    legend:{visible:false},
+    dragmode:'pan',
+  };
+
+  const config = {responsive:true, displayModeBar:false, scrollZoom:true};
+  Plotly.react('chart', traces, layout, config);
+}
+
+// ── Analysis panel rendering ─────────────────────────────────────────────────
+function renderAnalysis(data) {
+  const ind     = data.indicators;
+  const candles = data.candles;
+
+  const lastRSI     = last(ind.rsi);
+  const lastMACD    = last(ind.macd);
+  const lastSig     = last(ind.macd_signal);
+  const lastHist    = last(ind.macd_hist);
+  const lastBBU     = last(ind.bb_upper);
+  const lastBBL     = last(ind.bb_lower);
+  const lastBBM     = last(ind.bb_mid);
+  const lastSMA50   = last(ind.sma50);
+  const lastVolSMA  = last(ind.vol_sma);
+  const lastClose   = candles.length ? candles[candles.length-1].c : 0;
+  const lastVol     = candles.length ? candles[candles.length-1].v : 0;
+  const prevMACD    = prevOf(ind.macd, 1);
+  const prevSig     = prevOf(ind.macd_signal, 1);
+
+  // ── Indicator cards ──────────────────────────────────────────────────────
+  // RSI
+  if (lastRSI !== null) {
+    const el  = document.getElementById('ind-rsi');
+    const sig = document.getElementById('ind-rsi-sig');
+    el.textContent = lastRSI.toFixed(1);
+    if      (lastRSI > 75) { el.style.color='#f87171'; sig.style.color='#f87171'; sig.textContent='Severely overbought'; }
+    else if (lastRSI > 70) { el.style.color='#f87171'; sig.style.color='#f87171'; sig.textContent='Overbought'; }
+    else if (lastRSI > 55) { el.style.color='#fb923c'; sig.style.color='#fb923c'; sig.textContent='Bullish zone'; }
+    else if (lastRSI < 25) { el.style.color='#4ade80'; sig.style.color='#4ade80'; sig.textContent='Deeply oversold'; }
+    else if (lastRSI < 30) { el.style.color='#4ade80'; sig.style.color='#4ade80'; sig.textContent='Oversold'; }
+    else if (lastRSI < 45) { el.style.color='#60a5fa'; sig.style.color='#60a5fa'; sig.textContent='Bearish zone'; }
+    else                   { el.style.color='#a3a3a3'; sig.style.color='#525252'; sig.textContent='Neutral'; }
+  }
+
+  // MACD histogram
+  if (lastHist !== null) {
+    const el  = document.getElementById('ind-macd');
+    const sig = document.getElementById('ind-macd-sig');
+    const bull = lastMACD > lastSig;
+    el.textContent  = (lastHist >= 0 ? '+' : '') + lastHist.toFixed(4);
+    el.style.color  = bull ? '#4ade80' : '#f87171';
+    const crossed   = prevMACD !== null && prevSig !== null &&
+      ((prevMACD < prevSig && lastMACD > lastSig) || (prevMACD > prevSig && lastMACD < lastSig));
+    if (crossed && bull)  { sig.textContent='Bullish cross ↑'; sig.style.color='#4ade80'; }
+    else if (crossed)     { sig.textContent='Bearish cross ↓'; sig.style.color='#f87171'; }
+    else if (bull)        { sig.textContent='Bullish ↑';       sig.style.color='#4ade80'; }
+    else                  { sig.textContent='Bearish ↓';       sig.style.color='#f87171'; }
+  }
+
+  // Bollinger Band width
+  if (lastBBU && lastBBL && lastBBM) {
+    const el   = document.getElementById('ind-bb');
+    const sig  = document.getElementById('ind-bb-sig');
+    const width = ((lastBBU - lastBBL) / lastBBM * 100).toFixed(1);
+    el.textContent = width + '%';
+    const pct = (lastClose - lastBBL) / (lastBBU - lastBBL);
+    if      (pct > 0.92) { el.style.color='#f87171'; sig.style.color='#f87171'; sig.textContent='Near upper band'; }
+    else if (pct < 0.08) { el.style.color='#4ade80'; sig.style.color='#4ade80'; sig.textContent='Near lower band'; }
+    else if ((lastBBU-lastBBL)/lastBBM < 0.025) { el.style.color='#a5b4fc'; sig.style.color='#a5b4fc'; sig.textContent='Squeeze'; }
+    else                 { el.style.color='#a3a3a3'; sig.style.color='#525252'; sig.textContent='Mid-band'; }
+  }
+
+  // Volume ratio
+  if (lastVol && lastVolSMA) {
+    const el   = document.getElementById('ind-vol');
+    const sig  = document.getElementById('ind-vol-sig');
+    const ratio = lastVol / lastVolSMA;
+    el.textContent = ratio.toFixed(1) + 'x';
+    if      (ratio > 2.0) { el.style.color='#f59e0b'; sig.style.color='#f59e0b'; sig.textContent='Surge'; }
+    else if (ratio > 1.5) { el.style.color='#fb923c'; sig.style.color='#fb923c'; sig.textContent='High'; }
+    else if (ratio < 0.5) { el.style.color='#60a5fa'; sig.style.color='#60a5fa'; sig.textContent='Low'; }
+    else                  { el.style.color='#a3a3a3'; sig.style.color='#525252'; sig.textContent='Normal'; }
+  }
+
+  // ── Signal bullets ────────────────────────────────────────────────────────
+  const signals = [];
+
+  if (lastRSI !== null) {
+    if      (lastRSI > 75) signals.push(['⚠','#f87171',`<strong>RSI ${lastRSI.toFixed(1)} — Severely overbought.</strong> High reversion probability. Watch for rejection candle or bearish engulf.`]);
+    else if (lastRSI > 70) signals.push(['↘','#f87171',`<strong>RSI ${lastRSI.toFixed(1)} — Overbought.</strong> Momentum may be exhausting. Look for bearish divergence to confirm fade.`]);
+    else if (lastRSI < 25) signals.push(['⚡','#4ade80',`<strong>RSI ${lastRSI.toFixed(1)} — Deeply oversold.</strong> High-probability bounce zone. Wait for confirmation candle.`]);
+    else if (lastRSI < 30) signals.push(['↗','#4ade80',`<strong>RSI ${lastRSI.toFixed(1)} — Oversold.</strong> Potential reversal zone. Monitor for bullish divergence.`]);
+    else if (lastRSI > 50) signals.push(['→','#fb923c',`<strong>RSI ${lastRSI.toFixed(1)} — Bullish bias.</strong> Above midline, momentum favors longs. Hold or add on dips.`]);
+    else                   signals.push(['→','#60a5fa',`<strong>RSI ${lastRSI.toFixed(1)} — Bearish bias.</strong> Below midline, selling pressure present.`]);
+  }
+
+  if (lastMACD !== null && lastSig !== null) {
+    const bull   = lastMACD > lastSig;
+    const aboveZ = lastMACD > 0;
+    const crossed = prevMACD !== null && prevSig !== null &&
+      ((prevMACD < prevSig && lastMACD > lastSig) || (prevMACD > prevSig && lastMACD < lastSig));
+    if      (crossed && bull)  signals.push(['⬆','#4ade80',`<strong>MACD bullish crossover.</strong> MACD crossed above signal${aboveZ?' in positive territory':' — still below zero, confirm momentum'}.`]);
+    else if (crossed && !bull) signals.push(['⬇','#f87171',`<strong>MACD bearish crossover.</strong> MACD dropped below signal${!aboveZ?' in negative territory':' — above zero, watch closely'}.`]);
+    else if (bull && aboveZ)   signals.push(['↗','#4ade80',`<strong>MACD bullish, above zero.</strong> Strong uptrend momentum. Histogram ${lastHist > 0 ? 'expanding' : 'contracting — momentum fading'}.`]);
+    else if (!bull && !aboveZ) signals.push(['↘','#f87171',`<strong>MACD bearish, below zero.</strong> Downtrend dominant. Avoid longs without a confirmed reversal signal.`]);
+    else if (bull)             signals.push(['→','#fb923c',`<strong>MACD bullish but below zero.</strong> Potential trend reversal building. Confirmation needed.`]);
+    else                       signals.push(['→','#60a5fa',`<strong>MACD bearish, above zero.</strong> Uptrend stalling. Pullback or consolidation likely.`]);
+  }
+
+  if (lastBBU && lastBBL && lastBBM && lastClose) {
+    const pct   = (lastClose - lastBBL) / (lastBBU - lastBBL);
+    const width = (lastBBU - lastBBL) / lastBBM;
+    if      (pct > 0.95) signals.push(['⊙','#f87171',`<strong>Price at upper Bollinger Band</strong> (${fmtLabel(lastBBU)}). Potential resistance. Mean-reversion target: SMA20 ${fmtLabel(lastBBM)}.`]);
+    else if (pct < 0.05) signals.push(['⊙','#4ade80',`<strong>Price at lower Bollinger Band</strong> (${fmtLabel(lastBBL)}). Potential support bounce toward SMA20 ${fmtLabel(lastBBM)}.`]);
+    else if (width < 0.025) signals.push(['◈','#a5b4fc',`<strong>Bollinger squeeze active.</strong> Bands compressing — volatility buildup. Breakout imminent but direction unclear.`]);
+    else signals.push(['◈','#737373',`<strong>Price mid-band</strong> between ${fmtLabel(lastBBL)} – ${fmtLabel(lastBBU)}. No band extreme. SMA20 at ${fmtLabel(lastBBM)}.`]);
+  }
+
+  if (lastClose && lastBBM && lastSMA50) {
+    if      (lastClose > lastBBM && lastBBM > lastSMA50) signals.push(['▲','#4ade80',`<strong>Bullish MA alignment.</strong> Price ${fmtLabel(lastClose)} > SMA20 ${fmtLabel(lastBBM)} > SMA50 ${fmtLabel(lastSMA50)}. Trend is up.`]);
+    else if (lastClose < lastBBM && lastBBM < lastSMA50) signals.push(['▼','#f87171',`<strong>Bearish MA alignment.</strong> Price ${fmtLabel(lastClose)} < SMA20 ${fmtLabel(lastBBM)} < SMA50 ${fmtLabel(lastSMA50)}. Trend is down.`]);
+    else if (lastClose > lastBBM && lastBBM < lastSMA50) signals.push(['↗','#fb923c',`<strong>Short-term recovery, long-term bearish.</strong> Price and SMA20 recovering but still below SMA50. Early reversal — needs confirmation.`]);
+    else signals.push(['↘','#60a5fa',`<strong>Pullback within uptrend.</strong> Price below SMA20 but SMA20 above SMA50. Watch SMA20 ${fmtLabel(lastBBM)} as support.`]);
+  }
+
+  if (lastVol && lastVolSMA) {
+    const ratio = lastVol / lastVolSMA;
+    if      (ratio > 2.0) signals.push(['⬡','#f59e0b',`<strong>Volume surge at ${ratio.toFixed(1)}× average.</strong> Strong institutional participation — this move carries conviction.`]);
+    else if (ratio > 1.5) signals.push(['⬡','#fb923c',`<strong>Above-average volume (${ratio.toFixed(1)}×).</strong> Elevated interest confirms current price action.`]);
+    else if (ratio < 0.5) signals.push(['⬡','#525252',`<strong>Low volume (${ratio.toFixed(1)}× average).</strong> Weak participation — moves may lack follow-through.`]);
+  }
+
+  function renderItems(containerId, items) {
+    const el = document.getElementById(containerId);
+    el.innerHTML = '';
+    items.forEach(([icon, color, text], i) => {
+      const div = document.createElement('div');
+      div.className = 'signal-item';
+      div.style.animationDelay = (i * 0.07) + 's';
+      div.innerHTML = `<span class="signal-icon" style="color:${color}">${icon}</span><span class="signal-text">${text}</span>`;
+      el.appendChild(div);
+    });
+  }
+
+  renderItems('signals-container', signals);
+
+  // ── Trend context ─────────────────────────────────────────────────────────
+  const trend = [];
+
+  if (lastClose && lastBBM && lastSMA50) {
+    const d20 = ((lastClose - lastBBM)  / lastBBM  * 100).toFixed(2);
+    const d50 = ((lastClose - lastSMA50)/ lastSMA50 * 100).toFixed(2);
+    trend.push(['◎','#525252',
+      `SMA20 dist: <strong style="color:${+d20>=0?'#4ade80':'#f87171'}">${+d20>=0?'+':''}${d20}%</strong>
+       · SMA50 dist: <strong style="color:${+d50>=0?'#4ade80':'#f87171'}">${+d50>=0?'+':''}${d50}%</strong>`]);
+  }
+  if (ENTRY > 0 && lastClose) {
+    const dist   = ((lastClose - ENTRY) / ENTRY * 100);
+    const inProfit = SIDE === 'long' ? lastClose > ENTRY : SIDE === 'short' ? lastClose < ENTRY : false;
+    const adjDist = SIDE === 'short' ? -dist : dist;
+    trend.push(['◎','#525252',
+      `Position: <strong style="color:${inProfit?'#4ade80':'#f87171'}">${adjDist>=0?'+':''}${adjDist.toFixed(2)}%</strong> from entry`]);
+    if (SL > 0 && TP > 0) {
+      const rr = (Math.abs(TP - ENTRY) / Math.abs(ENTRY - SL)).toFixed(1);
+      trend.push(['◎','#525252',`R:R ratio: <strong style="color:#a5b4fc">${rr}:1</strong>`]);
+    }
+  }
+
+  renderItems('trend-container', trend);
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+fetchAndRender();
+setInterval(fetchAndRender, 60000);
+</script>
+</body>
+</html>

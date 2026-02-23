@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv:*)",
+      "Bash(pkill:*)",
+      "Bash(.venv/bin/python:*)",
+      "Bash(ngrok version:*)",
+      "Bash(cloudflared version:*)",
+      "Bash(xargs kill -9 sleep 2 lsof -i :3000,8000)",
+      "Bash(lsof:*)",
+      "Bash(# Kill ONLY the Hynous reflex process by its specific PID kill 23709 23712 23750 23751 23752 sleep 3 # Confirm they''re gone ps aux)",
+      "Bash(curl:*)",
+      "Bash(sudo rm:*)",
+      "Bash(launchctl list:*)",
+      "Bash(mdfind:*)"
+    ]
+  }
+}
