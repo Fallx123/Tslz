@@ -60,6 +60,8 @@ _COMPRESSION_SYSTEM = (
 
 # Max tokens for compression output
 _COMPRESSION_MAX_TOKENS = 600
+_COMPRESSION_RETRIES = 2
+_COMPRESSION_RETRY_DELAYS = (1.0, 2.5)
 
 # Words that indicate a trivial message (no need to search Nous)
 _TRIVIAL_MESSAGES = frozenset({
@@ -331,38 +333,77 @@ class MemoryManager:
         if len(formatted) < 100:
             return None
 
-        try:
-            response = litellm.completion(
-                model=self.config.memory.compression_model,
-                max_tokens=_COMPRESSION_MAX_TOKENS,
-                messages=[
-                    {"role": "system", "content": _COMPRESSION_SYSTEM},
-                    {"role": "user", "content": formatted},
-                ],
-            )
+        for attempt in range(_COMPRESSION_RETRIES + 1):
+            try:
+                response = litellm.completion(
+                    model=self.config.memory.compression_model,
+                    max_tokens=_COMPRESSION_MAX_TOKENS,
+                    messages=[
+                        {"role": "system", "content": _COMPRESSION_SYSTEM},
+                        {"role": "user", "content": formatted},
+                    ],
+                )
 
-            # Track compression cost
-            _record_compression_usage(response, model=self.config.memory.compression_model)
+                # Track compression cost
+                _record_compression_usage(response, model=self.config.memory.compression_model)
 
-            summary = response.choices[0].message.content.strip()
+                summary = response.choices[0].message.content.strip()
 
-            # Haiku flagged as trivial
-            if summary.upper() == "TRIVIAL":
-                return None
+                # Haiku flagged as trivial
+                if summary.upper() == "TRIVIAL":
+                    return None
 
-            # Sanity: summary shouldn't be longer than the input
-            if len(summary) > len(formatted):
-                logger.warning("Compression expanded input — using fallback")
+                # Sanity: summary shouldn't be longer than the input
+                if len(summary) > len(formatted):
+                    logger.warning("Compression expanded input - using fallback")
+                    return _fallback_compress(exchange)
+
+                return summary
+
+            except LitellmAPIError as e:
+                msg = str(e).lower()
+                is_transient = (
+                    "overloaded" in msg
+                    or "rate limit" in msg
+                    or "429" in msg
+                    or "timeout" in msg
+                )
+                if is_transient and attempt < _COMPRESSION_RETRIES:
+                    delay = _COMPRESSION_RETRY_DELAYS[min(attempt, len(_COMPRESSION_RETRY_DELAYS) - 1)]
+                    logger.warning(
+                        "Compression transient API error (attempt %d/%d): %s. Retrying in %.1fs",
+                        attempt + 1,
+                        _COMPRESSION_RETRIES + 1,
+                        e,
+                        delay,
+                    )
+                    time.sleep(delay)
+                    continue
+                logger.warning("Compression LLM call failed, using fallback: %s", e)
+                return _fallback_compress(exchange)
+            except Exception as e:
+                msg = str(e).lower()
+                is_transient = (
+                    "overloaded" in msg
+                    or "rate limit" in msg
+                    or "429" in msg
+                    or "timeout" in msg
+                )
+                if is_transient and attempt < _COMPRESSION_RETRIES:
+                    delay = _COMPRESSION_RETRY_DELAYS[min(attempt, len(_COMPRESSION_RETRY_DELAYS) - 1)]
+                    logger.warning(
+                        "Compression transient error (attempt %d/%d): %s. Retrying in %.1fs",
+                        attempt + 1,
+                        _COMPRESSION_RETRIES + 1,
+                        e,
+                        delay,
+                    )
+                    time.sleep(delay)
+                    continue
+                logger.warning("Compression unexpected error, using fallback: %s", e)
                 return _fallback_compress(exchange)
 
-            return summary
-
-        except LitellmAPIError as e:
-            logger.warning("Compression LLM call failed, using fallback: %s", e)
-            return _fallback_compress(exchange)
-        except Exception as e:
-            logger.error("Unexpected compression error: %s", e)
-            return _fallback_compress(exchange)
+        return _fallback_compress(exchange)
 
     def _store_summary(self, summary: str, exchange: list[dict]) -> None:
         """Store a compressed turn summary in Nous."""
