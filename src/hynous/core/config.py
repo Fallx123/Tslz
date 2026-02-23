@@ -119,6 +119,8 @@ class TelegramConfig:
     enabled: bool = False
     token: str = ""  # from TELEGRAM_BOT_TOKEN env var
     notify_chat_id: int = 0  # chat/channel to post daemon notifications
+    commands_only: bool = True  # ignore plain text unless it's a command
+    notify_trade_only: bool = True  # only send trade-related daemon notifications
     allowed_user_ids: list[int] = field(default_factory=list)
     allowed_chat_ids: list[int] = field(default_factory=list)
 
@@ -268,6 +270,8 @@ def load_config(config_path: Optional[str] = None) -> Config:
             enabled=telegram_raw.get("enabled", False),
             token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
             notify_chat_id=telegram_raw.get("notify_chat_id", 0),
+            commands_only=telegram_raw.get("commands_only", True),
+            notify_trade_only=telegram_raw.get("notify_trade_only", True),
             allowed_user_ids=telegram_raw.get("allowed_user_ids", []),
             allowed_chat_ids=telegram_raw.get("allowed_chat_ids", []),
         ),

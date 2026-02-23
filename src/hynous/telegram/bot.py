@@ -249,6 +249,9 @@ class HynousTelegramBot:
                 self._send(chat_id, "Unknown command. Use /help")
                 return
             else:
+                if getattr(self.config.telegram, "commands_only", True):
+                    self._send(chat_id, "Commands only. Use /help")
+                    return
                 prompt = text
 
             sender = (message.get("from") or {}).get("first_name") or "Telegram"
@@ -286,6 +289,9 @@ class HynousTelegramBot:
                 time.sleep(2)
 
     def send_notification(self, title: str, wake_type: str, response: str) -> None:
+        if getattr(self.config.telegram, "notify_trade_only", True):
+            if wake_type.lower() not in {"fill", "trade"}:
+                return
         chat_id = int(getattr(self.config.telegram, "notify_chat_id", 0) or 0)
         if not chat_id:
             return

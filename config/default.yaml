@@ -63,6 +63,8 @@ discord:
 telegram:
   enabled: true               # Master switch
   notify_chat_id: -1003572835955  # Chat/channel for daemon notifications (0 = disabled)
+  commands_only: true         # Ignore plain text messages; commands only
+  notify_trade_only: true     # Only notify on trade/fill events
   allowed_user_ids:            # Allowed Telegram users
     - 7169681384               # Fallx
     - 6476206454               # johnnjohnn
