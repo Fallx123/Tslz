@@ -700,6 +700,13 @@ def _get_agent():
                 except Exception as e:
                     logger.warning("Discord bot failed to start: %s", e)
 
+            if getattr(_agent.config, "telegram", None) and _agent.config.telegram.enabled:
+                try:
+                    from hynous.telegram.bot import start_bot as start_telegram_bot
+                    start_telegram_bot(_agent, _agent.config)
+                except Exception as e:
+                    logger.warning("Telegram bot failed to start: %s", e)
+
             return _agent
         except Exception as e:
             _agent_error = str(e)

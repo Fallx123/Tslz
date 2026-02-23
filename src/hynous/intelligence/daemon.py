@@ -49,10 +49,15 @@ def get_daemon_chat_queue() -> _queue_module.Queue:
 
 
 def _notify_discord(wake_type: str, title: str, response: str):
-    """Forward daemon notification to Discord (if bot is running)."""
+    """Forward daemon notification to chat bots (Discord + Telegram)."""
     try:
         from ..discord.bot import notify
         notify(title, wake_type, response)
+    except Exception:
+        pass
+    try:
+        from ..telegram.bot import notify as tg_notify
+        tg_notify(title, wake_type, response)
     except Exception:
         pass
 

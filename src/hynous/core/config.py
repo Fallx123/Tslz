@@ -114,6 +114,16 @@ class DiscordConfig:
 
 
 @dataclass
+class TelegramConfig:
+    """Telegram bot settings."""
+    enabled: bool = False
+    token: str = ""  # from TELEGRAM_BOT_TOKEN env var
+    notify_chat_id: int = 0  # chat/channel to post daemon notifications
+    allowed_user_ids: list[int] = field(default_factory=list)
+    allowed_chat_ids: list[int] = field(default_factory=list)
+
+
+@dataclass
 class OptionsConfig:
     """Options trading settings."""
     enabled: bool = False
@@ -148,6 +158,7 @@ class Config:
     options: OptionsConfig = field(default_factory=OptionsConfig)
     daemon: DaemonConfig = field(default_factory=DaemonConfig)
     discord: DiscordConfig = field(default_factory=DiscordConfig)
+    telegram: TelegramConfig = field(default_factory=TelegramConfig)
     webhook: WebhookConfig = field(default_factory=WebhookConfig)
     orchestrator: OrchestratorConfig = field(default_factory=OrchestratorConfig)
 
@@ -187,6 +198,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
     options_raw = raw.get("options", {})
     daemon_raw = raw.get("daemon", {})
     discord_raw = raw.get("discord", {})
+    telegram_raw = raw.get("telegram", {})
     webhook_raw = raw.get("webhook", {})
     orch_raw = raw.get("orchestrator", {})
 
@@ -251,6 +263,13 @@ def load_config(config_path: Optional[str] = None) -> Config:
             channel_id=discord_raw.get("channel_id", 0),
             stats_channel_id=discord_raw.get("stats_channel_id", 0),
             allowed_user_ids=discord_raw.get("allowed_user_ids", []),
+        ),
+        telegram=TelegramConfig(
+            enabled=telegram_raw.get("enabled", False),
+            token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+            notify_chat_id=telegram_raw.get("notify_chat_id", 0),
+            allowed_user_ids=telegram_raw.get("allowed_user_ids", []),
+            allowed_chat_ids=telegram_raw.get("allowed_chat_ids", []),
         ),
         webhook=WebhookConfig(
             enabled=webhook_raw.get("enabled", False),
