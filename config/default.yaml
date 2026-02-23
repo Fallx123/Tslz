@@ -61,7 +61,7 @@ discord:
 
 # Telegram bot (chat relay + command controls)
 telegram:
-  enabled: false              # Master switch
+  enabled: true               # Master switch
   notify_chat_id: 0           # Chat/channel for daemon notifications (0 = disabled)
   allowed_user_ids: []        # If set, only these Telegram user IDs can interact
   allowed_chat_ids: []        # If set, only these chat IDs can interact
