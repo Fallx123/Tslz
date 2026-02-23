@@ -136,7 +136,7 @@ class HynousTelegramBot:
     def _format_trades(self) -> str:
         from ..core.daemon_log import get_events
 
-        events = [e for e in get_events(limit=80) if e.get("type") in ("fill", "profit")]
+        events = [e for e in get_events(limit=80) if e.get("type") in ("fill", "profit", "trade")]
         if not events:
             return "No recent trade/fill events"
         lines = ["Recent trade events:"]

@@ -975,6 +975,11 @@ class Daemon:
                     "leverage": p.get("leverage", 20),
                 }
 
+            # Detect newly opened positions and notify immediately.
+            for coin, cur_data in current.items():
+                if coin not in self._prev_positions:
+                    self._notify_trade_open(coin, cur_data)
+
             # Detect closed positions: was in _prev but not in current
             closed_coins = []
             for coin, prev_data in self._prev_positions.items():
@@ -1736,15 +1741,81 @@ class Daemon:
         if response:
             self._fill_fires += 1
             fill_title = f"{classification.replace('_', ' ').title()}: {coin} {side} ({type_label})"
+            trade_note = self._build_trade_notification(
+                coin=coin,
+                side=side,
+                fill_price=exit_px,
+                realized_pnl=realized_pnl,
+                pnl_pct=pnl_pct,
+                status=classification.replace("_", " ").title(),
+            )
             log_event(DaemonEvent(
                 "fill", fill_title,
                 f"Entry: ${entry_px:,.0f} → Exit: ${exit_px:,.0f} | "
                 f"PnL: {pnl_sign}${abs(realized_pnl):,.2f} ({pnl_pct:+.1f}%)",
             ))
             _queue_and_persist("Fill", fill_title, response, event_type="fill")
-            _notify_discord("Fill", fill_title, response)
+            _notify_discord("Fill", fill_title, trade_note)
             logger.info("Fill wake complete: %s %s %s %s (PnL: %s%.2f)",
                          classification, trade_type, coin, side, pnl_sign, abs(realized_pnl))
+
+    @staticmethod
+    def _option_dte(symbol: str) -> int | None:
+        """Return DTE for OCC options symbol, else None."""
+        m = _OPTION_OCC_RE.match(symbol or "")
+        if not m:
+            return None
+        try:
+            exp_date = date(2000 + int(m.group(2)), int(m.group(3)), int(m.group(4)))
+        except Exception:
+            return None
+        return (exp_date - datetime.now(timezone.utc).date()).days
+
+    def _build_trade_notification(
+        self,
+        coin: str,
+        side: str,
+        fill_price: float,
+        realized_pnl: float | None,
+        pnl_pct: float | None,
+        status: str,
+    ) -> str:
+        """Build compact trade notification text for Discord/Telegram."""
+        dte = self._option_dte(coin)
+        dte_text = f"{dte}d" if dte is not None else "N/A"
+
+        if realized_pnl is None:
+            profit_text = "N/A"
+        else:
+            pnl_sign = "+" if realized_pnl >= 0 else "-"
+            pct_text = f" ({pnl_pct:+.1f}%)" if pnl_pct is not None else ""
+            profit_text = f"{pnl_sign}${abs(realized_pnl):,.2f}{pct_text}"
+
+        return (
+            f"Ticker: {coin}\n"
+            f"Side: {side.upper()}\n"
+            f"Status: {status}\n"
+            f"Fill Price: ${fill_price:,.4f}\n"
+            f"DTE: {dte_text}\n"
+            f"Profit: {profit_text}"
+        )
+
+    def _notify_trade_open(self, coin: str, cur_data: dict):
+        """Send a structured notification when a new position is opened."""
+        side = str(cur_data.get("side", "long"))
+        entry_px = float(cur_data.get("entry_px", 0) or 0)
+        title = f"Opened: {coin} {side.upper()}"
+        detail = self._build_trade_notification(
+            coin=coin,
+            side=side,
+            fill_price=entry_px,
+            realized_pnl=None,
+            pnl_pct=None,
+            status="Opened",
+        )
+        log_event(DaemonEvent("trade", title, detail))
+        _queue_and_persist("Trade", title, detail, event_type="trade")
+        _notify_discord("Trade", title, detail)
 
     # ================================================================
     # Coach Cross-Wake Intelligence
